@@ -35,10 +35,29 @@ input, not ids/row-order/fingerprints):
 - Validate with fixed 5-fold CV (seed 42) via `src/common.make_folds`. Guard against overfitting
   (single-1-NN overfits; k-NN voting + CNN generalize).
 
-## Baselines (CV, 5-fold seed 0/42)
-| Method | CV score |
-|---|---|
-| predict empty | 0.000 |
-| positional argmax | ~0.000 |
-| 1-NN copy (full slab) | 0.669 |
-| 1-NN copy (center-only) | 0.691 |
+## ⚠️ CRITICAL: the random-fold CV is LEAKY (adjacency leak)
+The slabs are **overlapping sliding windows** over source volumes: 523/600 train rows' prev/next
+visible slice exactly equals another train row's center slice. A random split therefore places
+adjacent slices of the same volume in both train and val, and retrieval simply copies its near-
+duplicate neighbour.
+
+- Reconstructed **61 volumes** by unioning rows that share any visible slice (`common.reconstruct_groups`).
+- The private **TEST set is volume-disjoint** from train (0/300 exact center matches; nearest-neighbour
+  cell-agreement 0.84 on test vs 0.98 on random train-holdout). So **volume-grouped CV
+  (`common.make_group_folds`) is the only honest estimate of test performance.**
+- k-NN retrieval: **0.7056 random-CV → 0.0483 group-CV**. The 0.70 was entirely leak.
+- Local ray-cast "socket" signature (translation-invariant): group-CV 0.02.
+
+**Consequence:** retrieval / whole-slab nearest-neighbour is useless on the real test. The task is
+genuine **cross-volume generalization**: learn the visible-anatomy → hidden-target mapping that holds
+on unseen volumes. All model selection, thresholds, and ensembling use **group CV**. Retrieval methods
+are dropped from the final ensemble unless they demonstrably generalize on group CV.
+
+## Baselines
+| Method | random-CV (leaky) | group-CV (honest) |
+|---|---|---|
+| predict empty | 0.000 | 0.000 |
+| positional argmax | ~0.000 | ~0.000 |
+| 1-NN copy (center-only) | 0.691 | — |
+| k-NN soft vote (k=3) | 0.7056 | 0.0483 |
+| local ray-cast signature | — | 0.020 |
