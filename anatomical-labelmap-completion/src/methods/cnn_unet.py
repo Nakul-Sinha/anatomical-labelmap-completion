@@ -137,6 +137,41 @@ def make_tensors(V, lut, Tidx=None):
     return idx, cz, y
 
 
+# ----------------------------------------------------------------------------
+# Geometric augmentation (label-preserving): dihedral D4 (8 poses) + integer shift,
+# applied JOINTLY to the 3 input slabs and the target. Absolute orientation/position
+# carry ~no signal here (position prior ~0), so these multiply effective data ~8x and
+# force the net to learn orientation-invariant local-anatomy -> target features.
+# ----------------------------------------------------------------------------
+def _dihedral(x, k, f):
+    """flip-along-W (if f) then rot90^k on the last two (H,W) dims."""
+    if f:
+        x = torch.flip(x, dims=[-1])
+    if k:
+        x = torch.rot90(x, k, dims=(-2, -1))
+    return x
+
+
+def _dihedral_inv(x, k, f):
+    if k:
+        x = torch.rot90(x, -k, dims=(-2, -1))
+    if f:
+        x = torch.flip(x, dims=[-1])
+    return x
+
+
+def _shift(x, dy, dx, fill):
+    """Integer translation of last two dims, constant fill (no wraparound)."""
+    if dy == 0 and dx == 0:
+        return x
+    x = torch.roll(x, shifts=(dy, dx), dims=(-2, -1))
+    if dy > 0:   x[..., :dy, :] = fill
+    elif dy < 0: x[..., dy:, :] = fill
+    if dx > 0:   x[..., :, :dx] = fill
+    elif dx < 0: x[..., :, dx:] = fill
+    return x
+
+
 def _seed_all(seed):
     torch.manual_seed(seed); np.random.seed(seed)
     if torch.cuda.is_available():
@@ -154,6 +189,9 @@ def train_model(idx_tr, cz_tr, y_tr, n_vocab, cfg, seed):
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
     N = idx_tr.shape[0]
     bs = cfg["batch_size"]
+    aug = cfg.get("aug", False)
+    trans = cfg.get("trans", 0)
+    bg_idx = int(cfg.get("bg_idx", 1))
     idx_tr = idx_tr.to(DEVICE); cz_tr = cz_tr.to(DEVICE); y_tr = y_tr.to(DEVICE)
     g = torch.Generator(device="cpu"); g.manual_seed(seed)
     model.train()
@@ -162,9 +200,15 @@ def train_model(idx_tr, cz_tr, y_tr, n_vocab, cfg, seed):
         for s in range(0, N, bs):
             b = perm[s:s + bs]
             xb, cb, yb = idx_tr[b], cz_tr[b], y_tr[b]
-            if cfg.get("flip", False):
-                if torch.rand(1, generator=g).item() < 0.5:
-                    xb = torch.flip(xb, dims=[3]); cb = torch.flip(cb, dims=[3]); yb = torch.flip(yb, dims=[2])
+            if aug:
+                k = int(torch.randint(0, 4, (1,), generator=g).item())
+                f = int(torch.randint(0, 2, (1,), generator=g).item())
+                xb = _dihedral(xb, k, f); yb = _dihedral(yb, k, f)
+                if trans > 0:
+                    dy = int(torch.randint(-trans, trans + 1, (1,), generator=g).item())
+                    dx = int(torch.randint(-trans, trans + 1, (1,), generator=g).item())
+                    xb = _shift(xb, dy, dx, bg_idx); yb = _shift(yb, dy, dx, 0)
+                cb = (xb[:, 1:2] == bg_idx).float()   # recompute center-zero after transform
             logits = model(xb, cb)
             loss = compute_loss(logits, yb, cb, wvec,
                                 ce_w=cfg["ce_w"], dice_w=cfg["dice_w"], dice_eps=cfg["dice_eps"])
@@ -175,27 +219,44 @@ def train_model(idx_tr, cz_tr, y_tr, n_vocab, cfg, seed):
 
 
 @torch.no_grad()
-def predict_proba(model, idx, cz, bs=256):
+def predict_proba(model, idx, cz, bs=256, tta=False, bg_idx=1):
+    """Softmax proba. With tta=True, average over the 8 dihedral poses (each inverted
+    back to the original orientation before averaging)."""
     idx = idx.to(DEVICE); cz = cz.to(DEVICE)
     out = np.zeros((idx.shape[0], C.NUM_CLASSES, 32, 32), np.float32)
     model.eval()
+    poses = [(k, f) for k in range(4) for f in range(2)] if tta else [(0, 0)]
     for s in range(0, idx.shape[0], bs):
-        logits = model(idx[s:s + bs], cz[s:s + bs])
-        out[s:s + bs] = F.softmax(logits, dim=1).cpu().numpy()
+        xb0 = idx[s:s + bs]; cz0 = cz[s:s + bs]
+        acc = torch.zeros((xb0.shape[0], C.NUM_CLASSES, 32, 32), device=DEVICE)
+        for (k, f) in poses:
+            xb = _dihedral(xb0, k, f)
+            cb = _dihedral(cz0, k, f) if not tta else (xb[:, 1:2] == bg_idx).float()
+            prob = F.softmax(model(xb, cb), dim=1)
+            acc += _dihedral_inv(prob, k, f)
+        out[s:s + bs] = (acc / len(poses)).cpu().numpy()
     return out
 
 
+# NOTE: geometric augmentation was tested on volume-grouped CV and consistently HURT
+# (dihedral D4: 0.047 vs plain 0.063; still climbing but far behind after 320 epochs).
+# The anatomy is atlas-aligned, so orientation relative to the grid carries real signal
+# that rotation/flip invariance discards; TTA likewise only helps an augmented model and
+# hurts the plain one. Coordinate channels also overfit (position prior ~0). Final recipe
+# is therefore a plain (no-aug, no-coords, no-TTA) model with dropout + weight decay.
 DEFAULT_CFG = dict(
-    embed_dim=16, base=48, dropout=0.15,
-    lr=2e-3, wd=1e-4, epochs=110, batch_size=96,
+    embed_dim=16, base=48, dropout=0.30,
+    lr=2e-3, wd=5e-4, epochs=135, batch_size=128,
     bg_weight=0.10, ce_w=1.0, dice_w=1.0, dice_eps=1.0,
-    flip=False, use_coords=True,
+    use_coords=False, aug=False, trans=0, tta=False,
 )
 
 
-def run(cfg=None, seeds_oof=(0,), seeds_test=(0, 1, 2), save=True, name="cnn_unet", verbose=True):
+def run(cfg=None, seeds_oof=(0, 1), seeds_test=(0, 1, 2, 3), save=True, name="cnn_unet", verbose=True):
     cfg = {**DEFAULT_CFG, **(cfg or {})}
     lut, n_vocab = build_vocab()
+    bg_idx = int(lut[0]); cfg["bg_idx"] = bg_idx
+    tta = cfg.get("tta", False)
     tr = C.load_split("train"); te = C.load_split("test")
     V, Tidx = tr["V"], tr["Tidx"]
     N = len(V)
@@ -209,17 +270,17 @@ def run(cfg=None, seeds_oof=(0,), seeds_test=(0, 1, 2), save=True, name="cnn_une
         acc = np.zeros((len(vai), C.NUM_CLASSES, 32, 32), np.float32)
         for sd in seeds_oof:
             model = train_model(idx_all[tri], cz_all[tri], y_all[tri], n_vocab, cfg, seed=1000 * sd + fi)
-            acc += predict_proba(model, idx_all[vai], cz_all[vai])
+            acc += predict_proba(model, idx_all[vai], cz_all[vai], tta=tta, bg_idx=bg_idx)
         oof[vai] = acc / len(seeds_oof)
         if verbose:
-            print(f"  fold {fi}: done ({time.time()-t0:.0f}s)")
+            print(f"  fold {fi}: done ({time.time()-t0:.0f}s)", flush=True)
 
     # ---- TEST (all 600 rows; average several seeds) ----
     idx_te, cz_te, _ = make_tensors(te["V"], lut)
     test = np.zeros((len(te["V"]), C.NUM_CLASSES, 32, 32), np.float32)
     for sd in seeds_test:
         model = train_model(idx_all, cz_all, y_all, n_vocab, cfg, seed=777 + sd)
-        test += predict_proba(model, idx_te, cz_te)
+        test += predict_proba(model, idx_te, cz_te, tta=tta, bg_idx=bg_idx)
     test /= len(seeds_test)
 
     if save:
