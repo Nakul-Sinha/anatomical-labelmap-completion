@@ -173,3 +173,55 @@ if __name__ == "__main__":
     # sanity: perfect prediction scores 1.0
     print("perfect score:", score_rows(tr["T"][:20], tr["T"][:20]))
     print("empty-vs-truth:", score_rows([np.zeros((32, 32), int)] * 20, tr["T"][:20]))
+
+
+# ----------------------------------------------------------------------------
+# Volume-group reconstruction (slabs are overlapping sliding windows; rows that
+# share any visible slice belong to the same source volume). Used for HONEST
+# group cross-validation, since the private test set is volume-disjoint.
+# ----------------------------------------------------------------------------
+def reconstruct_groups(V=None):
+    """Union rows that share any identical visible slice -> volume group id per row."""
+    if V is None:
+        V = load_split("train")["V"]
+    n = len(V)
+    parent = list(range(n))
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    slice2rows = {}
+    for i in range(n):
+        for s in range(3):
+            slice2rows.setdefault(V[i, s].astype(np.int16).tobytes(), []).append(i)
+    for rows in slice2rows.values():
+        for j in range(1, len(rows)):
+            union(rows[0], rows[j])
+    roots = [find(i) for i in range(n)]
+    remap = {r: g for g, r in enumerate(sorted(set(roots)))}
+    return np.array([remap[r] for r in roots], dtype=np.int64)
+
+
+def make_group_folds(k: int = 5, seed: int = 42, groups=None):
+    """GroupKFold-style split by reconstructed volume (no volume spans train & val)."""
+    if groups is None:
+        groups = reconstruct_groups()
+    uniq = np.unique(groups)
+    rng = np.random.RandomState(seed)
+    rng.shuffle(uniq)
+    buckets = np.array_split(uniq, k)
+    out = []
+    for i in range(k):
+        val_groups = set(buckets[i].tolist())
+        val = np.array([j for j in range(len(groups)) if groups[j] in val_groups])
+        tr = np.array([j for j in range(len(groups)) if groups[j] not in val_groups])
+        out.append((np.sort(tr), np.sort(val)))
+    return out
