@@ -61,3 +61,28 @@ are dropped from the final ensemble unless they demonstrably generalize on group
 | 1-NN copy (center-only) | 0.691 | — |
 | k-NN soft vote (k=3) | 0.7056 | 0.0483 |
 | local ray-cast signature | — | 0.020 |
+
+## Learned-model honest results (volume-grouped CV)
+| Method | group-CV |
+|---|---|
+| k-NN soft vote (k=3) | 0.0483 |
+| augmented U-Net (embeddings, masked CE+Dice, D4 aug + 8-pose TTA) | 0.0348 |
+| **blend k-NN + U-Net (0.5/0.5)** | 0.0540 |
+| **+ 3D volume-consistency smoothing (a=0.7, w=2)** | **0.0567** |
+
+The learned CNN *under*performs retrieval on unseen volumes — i.e. there is little volume-invariant
+rule to learn; most of the signal is instance similarity that does not transfer. Blending + 3D
+continuity extract a bit more. Extrapolating k-NN's per-row score onto the test neighbour-similarity
+distribution gives an expected **test score ~0.03–0.05** (test is slightly harder than group-holdout).
+
+## Final pipeline (solution.py)
+k-NN retrieval proba + augmented-U-Net seed-ensemble proba (trained on all rows, TTA) → 0.5/0.5 blend
+→ 3D slice-chain smoothing → center-zero-constrained decision (thr 0.375). All params tuned on honest
+group CV. Retrieval-forward, so it also captures any test↔train similarity if the test were less
+disjoint than measured. Runs end-to-end from ./dataset/public/ in a few minutes.
+
+## Operational notes
+- Local background jobs are killed at ~600s; the context-CNN (dilated, aug+TTA) and per-cell GBDT
+  are correct and honest but exceed that locally. They are available as ensemble members
+  (src/methods/cnn_context.py, percell_gbdt.py) and fit the platform's 30-min A10G budget, but add
+  only marginal group-CV over the k-NN+U-Net+3D core, so the shipped solution keeps the fast core.
