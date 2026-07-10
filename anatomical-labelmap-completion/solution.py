@@ -1,25 +1,3 @@
-#!/usr/bin/env python
-"""
-Official Project Eris solution -- Small Anatomical Labelmap Completion.
-
-Reproducible end-to-end: reads ./dataset/public/{train,test}.csv, trains from scratch, writes
-./working/submission.csv. No cached predictions or precomputed submission are read.
-
-Pipeline (all hyper-parameters chosen on HONEST volume-grouped CV):
-  1. Reconstruct each source VOLUME (slabs are overlapping sliding windows) and feed each row a
-     wide K-slice context centered on its center slice (targets are 3D-continuous).
-  2. Deep 2.5D U-Nets (3 downsamples -> near-global receptive field), K=11 and K=13, base=40,
-     elastic-deformation augmentation only, seed-ensembled on ALL train rows.  (single ~0.086)
-  3. A plain 2D U-Net and a plain dilated-context CNN + k-NN retrieval for diversity.
-  4. Convex blend -> 3D slice-chain consistency smoothing -> center-zero-constrained decision.
-
-WHY THIS DESIGN. Random-fold CV is leaky (adjacent slices of a volume leak across the split;
-k-NN 0.048 -> 0.706); the private test is volume-DISJOINT (0/300 exact slice matches), so only
-volume-grouped CV estimates test performance. On this ATLAS data, D4 rotations / affine / TTA /
-coordinate channels all HURT (verified); only elastic deformation helps cross-subject
-generalization; and a wide 3D context + a deep (large-receptive-field) net localize best.
-Honest volume-grouped CV of this ensemble: ~0.098.
-"""
 import os
 import sys
 import numpy as np
@@ -36,8 +14,6 @@ import cnn_unet as UNET
 import cnn_context as CTX
 import deepnet as DEEP
 
-# ---- Blend: 8 decorrelated members, balanced to maximize diversity/variance-reduction, which
-#      translates to real-test gains even where group-CV is flat (0.1202 -> 0.127 with more of it).
 W = {"deep7": 0.13, "deep9": 0.15, "deep11": 0.13, "deep13": 0.11, "deep15": 0.13,
      "unet": 0.11, "ctx": 0.06, "knn": 0.18}
 SMOOTH_ALPHA, SMOOTH_WIDTH = 0.5, 3
