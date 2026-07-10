@@ -1,4 +1,4 @@
-# Small Anatomical Labelmap Completion — findings & strategy
+# Small Anatomical Labelmap Completion: findings & strategy
 
 ## Task
 - Input per row: 3 adjacent 32×32 **integer** label maps (prev / center / next slice), with 17 target
@@ -18,7 +18,7 @@
 4. **Position alone is nearly useless** (per-cell argmax CV ≈ 0.00): the target region is a tiny 2.6%
    of the large background-zero area, so a positional prior can't localize it.
 5. **Cross-slice hole alignment barely helps** (P(target | center-zero) = 2.6%, vs 2.6% if prev&next
-   also zero) — background is background across all three slices.
+   also zero), background is background across all three slices.
 6. **Targets are not enclosed holes**: 77% of target cells have zero nonzero 4-neighbors; 95% lie in
    the exterior background component. Morphology alone won't localize them.
 7. **Retrieval is the breakthrough**: copying the target map from the most-similar training row (by
@@ -58,9 +58,9 @@ are dropped from the final ensemble unless they demonstrably generalize on group
 |---|---|---|
 | predict empty | 0.000 | 0.000 |
 | positional argmax | ~0.000 | ~0.000 |
-| 1-NN copy (center-only) | 0.691 | — |
+| 1-NN copy (center-only) | 0.691 |  |
 | k-NN soft vote (k=3) | 0.7056 | 0.0483 |
-| local ray-cast signature | — | 0.020 |
+| local ray-cast signature |  | 0.020 |
 
 ## Learned-model honest results (volume-grouped CV)
 | Method | group-CV |
@@ -70,10 +70,10 @@ are dropped from the final ensemble unless they demonstrably generalize on group
 | **blend k-NN + U-Net (0.5/0.5)** | 0.0540 |
 | **+ 3D volume-consistency smoothing (a=0.7, w=2)** | **0.0567** |
 
-The learned CNN *under*performs retrieval on unseen volumes — i.e. there is little volume-invariant
+The learned CNN *under*performs retrieval on unseen volumes, i.e. there is little volume-invariant
 rule to learn; most of the signal is instance similarity that does not transfer. Blending + 3D
 continuity extract a bit more. Extrapolating k-NN's per-row score onto the test neighbour-similarity
-distribution gives an expected **test score ~0.03–0.05** (test is slightly harder than group-holdout).
+distribution gives an expected **test score ~0.03 to 0.05** (test is slightly harder than group-holdout).
 
 ## Final pipeline (solution.py)
 k-NN retrieval proba + augmented-U-Net seed-ensemble proba (trained on all rows, TTA) → 0.5/0.5 blend
@@ -88,7 +88,7 @@ disjoint than measured. Runs end-to-end from ./dataset/public/ in a few minutes.
   only marginal group-CV over the k-NN+U-Net+3D core, so the shipped solution keeps the fast core.
 
 ## FINAL (supersedes the table above): augmentation ablation + best ensemble
-Key correction: geometric **augmentation HURTS** on this atlas data — the oriented local
+Key correction: geometric **augmentation HURTS** on this atlas data, the oriented local
 configuration of anatomy around a hole is real signal, and D4 rotations/flips/translations,
 8-pose TTA, and absolute-coordinate channels all destroy it. Removing them lifted both CNNs a lot:
 
@@ -139,12 +139,12 @@ So group-CV is well-calibrated and 0.138 is achievable on disjoint volumes by a 
 | **final ensemble** (deep K11+K13 + 2D U-Net + dilated CNN + kNN + 3D) | **~0.098 (robust) / 0.103 (greedy, overfit)** |
 
 **Levers that did NOT help:** affine/rotation aug, dedicated presence head (multi-task; set is
-irreducibly hard — 96% recall @ 77% precision), presence/mass decision thresholds, morphological
-region growing (targets too small — floods), multi-view slice reconciliation (far views dilute),
+irreducibly hard, 96% recall @ 77% precision), presence/mass decision thresholds, morphological
+region growing (targets too small, floods), multi-view slice reconciliation (far views dilute),
 larger base / bottleneck attention (overfit on 61 volumes).
 
 **Key diagnostic:** oracle label-set gives only +0.026 (0.072→0.098) and is unreachable (predicting
-which labels are present on a new subject is genuinely hard). Per-row scores are uniform (~0.09) —
+which labels are present on a new subject is genuinely hard). Per-row scores are uniform (~0.09), 
 no easy subset to exploit. The fundamental limit is **cross-subject localization with only 61 source
 volumes**; the deeper receptive field + wide 3D context + elastic aug + diverse ensembling extract
 the most signal I found. Shipped robust ensemble ≈ 0.098 group-CV (2.05x the honest kNN baseline).
