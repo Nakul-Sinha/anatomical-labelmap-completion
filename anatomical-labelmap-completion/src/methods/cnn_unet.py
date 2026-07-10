@@ -3,19 +3,25 @@ U-Net segmentation method -> soft per-cell class probabilities in the ensemble f
 
 The 3 visible label-map slices are encoded with a learned EMBEDDING over the visible-label
 vocabulary (built from all distinct labels in train+test inputs; index 0 reserved for
-unknown/pad). Each cell of each slice is embedded (dim ~16); the three embedded slices are
-concatenated channel-wise together with a binary center-is-zero mask and normalized (x,y)
-coordinate channels. A small U-Net (32->16->8, GroupNorm skip connections, ~1M params) maps
-this to 18 per-cell logits -> softmax.
+unknown/pad). Each cell of each slice is embedded (dim 16); the three embedded slices are
+concatenated channel-wise with a binary center-is-zero mask. A small U-Net (32->16->8,
+GroupNorm + SiLU, skip connections, ~1M params) maps this to 18 per-cell logits -> softmax.
 
-Loss = weighted cross-entropy (background down-weighted) + soft multiclass Dice over the 17
-target classes. Both terms are evaluated ONLY on center-zero cells (the only place a target can
-live; the shared decision rule enforces this at inference), which focuses capacity on the hard
-~2.6%-positive region. The Dice term (smoothed) penalizes spurious target labels, aligning with
-the squared active-macro-IoU grader metric.
+Loss = weighted cross-entropy (background down-weighted to 0.10) + soft multiclass Dice over
+the 17 target classes. Both terms are evaluated ONLY on center-zero cells (the only place a
+target can live; the shared decision rule enforces this at inference), which focuses capacity
+on the hard ~2.6%-positive region. The smoothed Dice term penalizes spurious target labels,
+aligning with the squared active-macro-IoU grader metric.
 
-OOF uses the canonical 5-fold split (never leaking a val row into its own training fold); the
-test prediction averages several models trained on all 600 rows. Everything is seeded.
+HONEST CV: the slabs are overlapping sliding windows, so a random 5-fold split leaks adjacent
+slices of the same volume into train+val and massively inflates scores (kNN 0.71 random vs
+0.048 volume-grouped). The private test set is volume-disjoint, so OOF here uses
+common.make_group_folds (no volume spans a train/val boundary). Choices were tuned to maximise
+GROUP-CV: coordinate channels, dihedral/translation augmentation and test-time augmentation
+were all tested and HURT cross-volume generalisation (the anatomy is atlas-aligned, so absolute
+orientation/position carry real signal that invariance discards). The final model is therefore
+plain (no coords/aug/TTA) with dropout 0.30 + weight decay 5e-4 for regularisation. OOF averages
+2 seeds/fold; the test prediction averages models trained on all 600 rows. Everything is seeded.
 """
 import os, sys, time
 import numpy as np
@@ -292,7 +298,8 @@ def run(cfg=None, seeds_oof=(0, 1), seeds_test=(0, 1, 2, 3), save=True, name="cn
 if __name__ == "__main__":
     sys.path.insert(0, os.path.join(_HERE, ".."))
     import ensemble as E
-    oof, test = run()
+    oof, test = run(seeds_test=(0, 1, 2))
     tr = C.load_split("train")
-    s, th = E.tune_thresh(oof, tr["V"], tr["T"])
-    print(f"cnn_unet OOF unified score {s:.4f} @ thr={th}; oof{oof.shape} test{test.shape}")
+    fine = np.round(np.concatenate([np.arange(0.02, 0.15, 0.01), np.arange(0.15, 0.71, 0.025)]), 3)
+    s, th = E.tune_thresh(oof, tr["V"], tr["T"], grid=fine)
+    print(f"cnn_unet GROUP-CV OOF {s:.4f} @ thr={th}; oof{oof.shape} test{test.shape}")
