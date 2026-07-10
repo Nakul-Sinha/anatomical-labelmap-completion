@@ -121,3 +121,30 @@ Shipped solution.py = the 4-model row (thr 0.25, smooth a=0.7 w=3). Honest group
 (+42% over the pre-ablation 0.0567; +66% over the k-NN baseline 0.0483). Two plain U-Nets of
 different width + a dilated-context net + a small k-NN weight; variance reduction from the extra
 decorrelated model. No augmentation/TTA anywhere (verified harmful on this atlas data).
+
+## Deep-dive research (pushing past the 0.08 plateau; leader at 0.138)
+Confirmed the test is genuinely volume-disjoint (0/300 slice matches at ANY position; test NN
+similarity 0.84 == group-holdout 0.85; volume reconstruction is clean, each slice in <=3 rows).
+So group-CV is well-calibrated and 0.138 is achievable on disjoint volumes by a stronger method.
+
+**Levers tested on honest group-CV (single-seed unless noted):**
+| Lever | result |
+|---|---|
+| wider 3D context (reconstruct volume, K-slice window): K=3→7→9→11 | 0.054 → 0.067 → 0.077 (helps) |
+| elastic deformation aug (simulates cross-subject variation) | +0.009 (helps; D4/affine HURT) |
+| **deep U-Net (3 downsamples, near-global receptive field), base=40** | **0.083 (best single)** |
+| base sweep: 32 / 40 / 48 / 56 | 0.076 / 0.083 / 0.074 / 0.070 (40 optimal) |
+| bottleneck self-attention | hurts (overfits) |
+| seed-ensembling deep K=11 (3 seeds) | 0.0847 raw → 0.086 +3D |
+| **final ensemble** (deep K11+K13 + 2D U-Net + dilated CNN + kNN + 3D) | **~0.098 (robust) / 0.103 (greedy, overfit)** |
+
+**Levers that did NOT help:** affine/rotation aug, dedicated presence head (multi-task; set is
+irreducibly hard — 96% recall @ 77% precision), presence/mass decision thresholds, morphological
+region growing (targets too small — floods), multi-view slice reconciliation (far views dilute),
+larger base / bottleneck attention (overfit on 61 volumes).
+
+**Key diagnostic:** oracle label-set gives only +0.026 (0.072→0.098) and is unreachable (predicting
+which labels are present on a new subject is genuinely hard). Per-row scores are uniform (~0.09) —
+no easy subset to exploit. The fundamental limit is **cross-subject localization with only 61 source
+volumes**; the deeper receptive field + wide 3D context + elastic aug + diverse ensembling extract
+the most signal I found. Shipped robust ensemble ≈ 0.098 group-CV (2.05x the honest kNN baseline).
