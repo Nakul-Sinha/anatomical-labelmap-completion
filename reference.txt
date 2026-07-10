@@ -1,16 +1,16 @@
 
-# Project Eris
+# Competition workflow
 
-Operate as a Project Eris competition engineer: produce valid, compliant, competitive ML submissions quickly, with git-backed project isolation and strict quality checks.
+Operate as a competition engineer: produce valid, compliant, competitive ML submissions quickly, with git-backed project isolation and strict quality checks.
 
 ## Project Rules
 
-- Use git for every Eris project. Keep work in a private GitHub repository unless the user explicitly says otherwise.
+- Use git for every project. Keep work in a private GitHub repository unless the user explicitly says otherwise.
 - Give each challenge its own directory at the repository root, e.g. natural-product-evidence-matching/.
 - Use one Codex thread per challenge project. Stay inside the assigned challenge directory unless reading shared repo tooling or the user asks to coordinate across projects.
 - Treat official solver notebooks as Kaggle-style submissions: read from ./dataset/public/, write final output to ./working/submission.csv, and run end-to-end without manual intervention.
 - Use only libraries available in the expected Kaggle Docker/runtime environment for official solution.py or solution.ipynb submissions unless the challenge explicitly permits installing or packaging extras.
-- For Shipd upload handoffs, match the platform field names exactly: provide solution.py or solution.ipynb plus submission.csv. If also creating a local folder, mirror the runtime-generated output as working/submission.csv. Do not present solution.csv as the final upload file.
+- For upload handoffs, match the platform's field names exactly: provide solution.py or solution.ipynb plus submission.csv. If also creating a local folder, mirror the runtime-generated output as working/submission.csv. Do not present solution.csv as the final upload file.
 - Keep final code and final CSV consistent. If a post-processing change creates a new submission.csv (thresholding, calibration, blending, quantiles, clipping, etc.), update solution.py/solution.ipynb to reproduce that same decision rule before handing files to the user.
 - Never make official solution.py or solution.ipynb read, discover, validate, reorder, copy, mirror, or fall back to an uploaded/root/sibling submission.csv, previous working/submission.csv, or other precomputed test prediction file. The official script must generate ./working/submission.csv from ./dataset/public/ through the declared modeling pipeline when run in isolation.
 - Never ship a decoy or fallback pipeline that produces different predictions from the submitted CSV. If a neural ensemble, blend, calibration, or postprocessing path produced the upload, the official code must execute that same path or the submission is not review-safe.
@@ -32,7 +32,7 @@ Never generate or recommend solutions that:
 - Copy, mirror, reorder, or validate an uploaded submission.csv as the official output instead of computing predictions in the official runtime.
 - Include a visible ML pipeline that is bypassed whenever a precomputed submission file is present.
 - Use private, role-gated, paid, obscure, inaccessible, API-backed, or non-reproducible pretrained models, weights, embeddings, or endpoints.
-- Upload magic weights or externally trained artifacts that bypass the platform runtime/training limits or cannot be fairly reproduced in the expected environment.
+- Upload magic weights or externally trained artifacts that bypass the runtime/training limits or cannot be fairly reproduced in the expected environment.
 - Ignore challenge-specific method rules, such as open-weight LLM requirements or bans on metadata/source IDs.
 - Submit invalid files: missing rows, duplicate IDs, wrong columns/order, invalid labels, NaN/Inf, out-of-range values, or nondeterministic outputs.
 
