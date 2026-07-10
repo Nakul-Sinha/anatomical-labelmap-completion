@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.join(_ROOT, "src"))
 import common as C, ensemble as E, decide2 as D, postprocess as P
 tr = C.load_split("train"); V, T = tr["V"], tr["T"]
 
-NAMES = ["deepnet_k11", "deepnet_k13", "cnn_unet", "cnn_context", "knn"]
+NAMES = ["deepnet_k9", "deepnet_k11", "deepnet_k13", "cnn_unet", "cnn_context", "knn"]
 O = {}
 for n in NAMES:
     try:

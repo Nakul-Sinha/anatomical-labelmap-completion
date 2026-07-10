@@ -36,13 +36,13 @@ import cnn_unet as UNET
 import cnn_context as CTX
 import deepnet as DEEP
 
-# ---- Blend weights + decision (robust weighting locked on volume-grouped CV) ----
-W = {"deep11": 0.30, "deep13": 0.30, "unet": 0.12, "ctx": 0.08, "knn": 0.20}
+# ---- Blend weights + decision (balanced greedy weighting on volume-grouped CV ~0.098) ----
+W = {"deep9": 0.286, "deep11": 0.143, "deep13": 0.143, "unet": 0.143, "ctx": 0.143, "knn": 0.142}
 SMOOTH_ALPHA, SMOOTH_WIDTH = 0.5, 3
-THRESH, MIN_AREA = 0.40, 0
+THRESH, MIN_AREA = 0.35, 0
 UNET_SEEDS = (0, 1, 2)
 CTX_SEEDS = (0, 1, 2)
-DEEP_SEEDS = (0, 1, 2)
+DEEP_SEEDS = (0, 1, 2, 3)
 CTX_CFG = dict(emb=16, w=96, dilations=(1, 2, 4, 8, 4, 2, 1), groups=8, dropout=0.30, bs=64,
                lr=2e-3, wd=5e-4, epochs=120, bg_weight=0.10, dice_w=1.0, aug=False, shift=0,
                tta=False, use_coord=False)
@@ -91,7 +91,7 @@ def deep_test(K):
 
 def main():
     tr = C.load_split("train"); te = C.load_split("test")
-    proba = {"deep11": deep_test(11), "deep13": deep_test(13),
+    proba = {"deep9": deep_test(9), "deep11": deep_test(11), "deep13": deep_test(13),
              "unet": unet_test(tr, te), "ctx": ctx_test(tr, te), "knn": knn_test(tr, te)}
     blend = sum(W[k] * proba[k] for k in W)
     blend /= (blend.sum(1, keepdims=True) + 1e-9)
