@@ -6,7 +6,7 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_ROOT, "src"))
 import common as C, ensemble as E, decide2 as D, postprocess as P
 tr = C.load_split("train"); V, T = tr["V"], tr["T"]
-NAMES = ["deepnet_k9", "deepnet_k11", "deepnet_k13", "cnn_unet", "cnn_context", "knn"]
+NAMES = ["deepnet_k7","deepnet_k9","deepnet_k11","deepnet_k13","deepnet_k15","cnn_unet","cnn_context","knn"]
 SM = {}
 for n in NAMES:
     o = E.load_preds(n)[0]; b = o / (o.sum(1, keepdims=True) + 1e-9)
