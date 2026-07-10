@@ -86,3 +86,24 @@ disjoint than measured. Runs end-to-end from ./dataset/public/ in a few minutes.
   are correct and honest but exceed that locally. They are available as ensemble members
   (src/methods/cnn_context.py, percell_gbdt.py) and fit the platform's 30-min A10G budget, but add
   only marginal group-CV over the k-NN+U-Net+3D core, so the shipped solution keeps the fast core.
+
+## FINAL (supersedes the table above): augmentation ablation + best ensemble
+Key correction: geometric **augmentation HURTS** on this atlas data — the oriented local
+configuration of anatomy around a hole is real signal, and D4 rotations/flips/translations,
+8-pose TTA, and absolute-coordinate channels all destroy it. Removing them lifted both CNNs a lot:
+
+| Method (volume-grouped CV) | group-CV |
+|---|---|
+| k-NN soft vote (k=3) | 0.0483 |
+| U-Net, augmented (D4 + TTA) | 0.0348 |
+| **U-Net, plain (no aug/TTA/coords, dropout 0.30)** | **0.0640** |
+| dilated-context CNN, augmented | 0.0386 |
+| **dilated-context CNN, plain** | **0.0601** |
+| per-cell HistGBDT (local features) | 0.0330 |
+| U-Net + dilated-context (0.5/0.5) + 3D | 0.0770 |
+| **U-Net 0.45 + dilated-context 0.45 + k-NN 0.10 + 3D (a=0.7,w=3,thr=0.225)** | **0.0791** |
+
+Final pipeline = the last row (solution.py). +39% over the pre-ablation 0.0567. k-NN kept at a
+small weight: it adds group-CV value AND hedges the (unlikely) case that the private test is less
+volume-disjoint than measured. Expected honest test ~0.05-0.08 (test ~as hard as held-out volumes).
+GBDT (0.033) not selected. All params tuned on group CV; no aug/TTA in the final models.
