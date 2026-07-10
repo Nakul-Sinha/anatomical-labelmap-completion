@@ -107,3 +107,17 @@ Final pipeline = the last row (solution.py). +39% over the pre-ablation 0.0567. 
 small weight: it adds group-CV value AND hedges the (unlikely) case that the private test is less
 volume-disjoint than measured. Expected honest test ~0.05-0.08 (test ~as hard as held-out volumes).
 GBDT (0.033) not selected. All params tuned on group CV; no aug/TTA in the final models.
+
+## Final ensemble update (4 models)
+Adding a higher-capacity plain U-Net (base 72, single group-CV 0.0614) as a 4th, decorrelated
+member gives a small but consistent lift:
+
+| Ensemble (+ 3D smoothing) | group-CV |
+|---|---|
+| U-Net(48) .45 + dilated .45 + kNN .10 | 0.0791 |
+| **U-Net(48) .30 + U-Net(72) .30 + dilated .30 + kNN .10** | **0.0804** |
+
+Shipped solution.py = the 4-model row (thr 0.25, smooth a=0.7 w=3). Honest group-CV **0.0804**
+(+42% over the pre-ablation 0.0567; +66% over the k-NN baseline 0.0483). Two plain U-Nets of
+different width + a dilated-context net + a small k-NN weight; variance reduction from the extra
+decorrelated model. No augmentation/TTA anywhere (verified harmful on this atlas data).
